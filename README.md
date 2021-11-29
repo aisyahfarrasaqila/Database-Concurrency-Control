@@ -12,6 +12,6 @@ python3 simplelocking.py <filename>
 ```
 
 ## Author
-Aisyah Farras Aqila - 13519054
-Teknik Informatika
+Aisyah Farras Aqila - 13519054<br>
+Teknik Informatika<br>
 Institut Teknologi Bandung
