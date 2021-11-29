@@ -142,7 +142,8 @@ class LockManager:
 
 
 # Read schedule from file
-directory = sys.argv[1]
+filename = sys.argv[1]
+directory = '../test/' + filename
 file = open(directory, 'r')
 
 # Make schedule
@@ -161,7 +162,9 @@ for line in file:
     schedule.append((transaction, action, data))
     lockManager.addTransaction(transaction)
 
-# print(schedule)
+print('Schedule:')
+print(schedule)
+print('\n')
 
 # Execute schedule
 i = 0
@@ -170,7 +173,9 @@ while len(schedule) > 0 or len(waiting_queue) > 0:
     # Execute waiting queue if possible
     if len(waiting_queue) != 0:
         print('-- EXECUTING WAITING QUEUE --')
+        print('Waiting Queue:')
         print(waiting_queue)
+        print('\n')
         i_queue = 0
         while i_queue < len(waiting_queue):
             operation_queue = waiting_queue[i_queue]
@@ -180,6 +185,7 @@ while len(schedule) > 0 or len(waiting_queue) > 0:
 
             # Check for locks if action is not commit
             if action_queue != 'COMMIT':
+                print('Executing: ', end="")
                 print(operation_queue)
                 held_queue = lockManager.isHeld(transaction_queue, data_queue)
                 # Add operation to final schedule if lock is held
@@ -205,6 +211,7 @@ while len(schedule) > 0 or len(waiting_queue) > 0:
             else:
                 # Release all locks when commiting
                 if not lockManager.isTransactionWaiting(transaction_queue):
+                    print('Executing: ', end="")
                     print(operation_queue)
                     print("Transaction releases locks\n")
                     lockManager.releaseAllLocks(transaction_queue)
@@ -224,6 +231,7 @@ while len(schedule) > 0 or len(waiting_queue) > 0:
         if not lockManager.isTransactionWaiting(transaction):
             # print(lockManager.isTransactionWaiting(transaction))
             if action != 'COMMIT':
+                print('Executing: ', end="")
                 print(operation)
                 held = lockManager.isHeld(transaction, data)
                 if held:
@@ -284,7 +292,7 @@ while len(schedule) > 0 or len(waiting_queue) > 0:
                         schedule.extend(new_final)
                         schedule.extend(new_waiting)
                         schedule.extend(new_schedule)
-                        print('New schedule:')
+                        print('New schedule after rollback:')
                         print(schedule)
                         print('\n')
 
@@ -292,6 +300,7 @@ while len(schedule) > 0 or len(waiting_queue) > 0:
                         lockManager.releaseAllLocks(transaction)
                             
             else:
+                print('Executing: ', end="")
                 print(operation)
                 print("Transaction releases locks\n")
                 lockManager.releaseAllLocks(transaction)
@@ -299,10 +308,10 @@ while len(schedule) > 0 or len(waiting_queue) > 0:
                 schedule.pop(i)
         else:
             waiting_queue.append(operation)
+            print('Executing: ', end="")
             print(operation)
             print("Transaction waiting, goes to queue\n")
             schedule.pop(i)
 
 print('Final Schedule:')
 print(final_schedule)
-print(len(final_schedule))
