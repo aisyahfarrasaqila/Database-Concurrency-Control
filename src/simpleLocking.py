@@ -2,7 +2,9 @@ import sys
 
 class Lock:
     def __init__(self, data):
+        # Data item
         self.data = data
+        # Queue of transactions acquiring lock, head of queue holds the lock
         self.transactions = []
 
     def enqueue(self, transaction):
@@ -36,7 +38,9 @@ class Lock:
 
 class Transaction:
     def __init__(self, transaction):
+        # Name of transaction
         self.transaction = transaction
+        # Waiting status, true if transaction is waiting for a lock (in waiting queue)
         self.waiting = False
 
     def setWaiting(self, waiting):
@@ -58,6 +62,7 @@ class LockManager:
             i += 1
         return -1
 
+    # Transaction attempts to acquire lock of data
     def acquireLock(self, transaction, data):
         index = self.findLock(data)
         if index != -1:
@@ -119,6 +124,7 @@ class LockManager:
             i += 1
         return -1
 
+    # Remove transaction from lock queue
     def removeTransactionFromData(self, transaction, data):
         index = self.findLock(data)
         if index != -1:
@@ -176,6 +182,7 @@ while len(schedule) > 0 or len(waiting_queue) > 0:
         print('Waiting Queue:')
         print(waiting_queue)
         print('\n')
+        
         i_queue = 0
         while i_queue < len(waiting_queue):
             operation_queue = waiting_queue[i_queue]
@@ -229,15 +236,16 @@ while len(schedule) > 0 or len(waiting_queue) > 0:
         data = operation[2]
 
         if not lockManager.isTransactionWaiting(transaction):
-            # print(lockManager.isTransactionWaiting(transaction))
             if action != 'COMMIT':
                 print('Executing: ', end="")
                 print(operation)
                 held = lockManager.isHeld(transaction, data)
+                # Add operation to final schedule if lock is held
                 if held:
                     print("Transaction has lock, added to final schedule\n")
                     final_schedule.append(operation)
                     schedule.pop(i)
+                # Lock is not held
                 else:
                     print("Transaction attempts to acquire lock. ", end="")
                     # Acquire lock
@@ -253,11 +261,12 @@ while len(schedule) > 0 or len(waiting_queue) > 0:
                             lockManager.setTransactionWaiting(transaction, True)
                             waiting_queue.append(operation)
                         schedule.pop(i)
-                    # Rollback
+                    # Rollback when fails to acquire lock (newer transaction, due to wait-die scheme)
                     else:
                         print("New transaction can't wait, rollback")
                         print("Rollback " + str(transaction) + "\n")
-                        # Delete operations of new request's transaction from waiting queue
+
+                        # Delete operations of newer transaction from waiting queue
                         new_waiting = []
                         i_waiting = 0
                         while i_waiting < len(waiting_queue):
@@ -268,7 +277,7 @@ while len(schedule) > 0 or len(waiting_queue) > 0:
                                 i_waiting -= 1
                             i_waiting += 1
 
-                        # Delete operations of new request's transaction from final schedule and move to end of schedule
+                        # Delete operations of newer transaction from final schedule
                         new_final = []
                         i_final = 0
                         while i_final < len(final_schedule):
@@ -278,7 +287,7 @@ while len(schedule) > 0 or len(waiting_queue) > 0:
                                 i_final -= 1
                             i_final += 1
 
-                        # Move operations of transaction to end of schedule
+                        # Delete remaining operations of newer transaction from schedule
                         new_schedule = []
                         i_schedule = i
                         while i_schedule < len(schedule):
@@ -288,7 +297,7 @@ while len(schedule) > 0 or len(waiting_queue) > 0:
                                 i_schedule -= 1
                             i_schedule += 1
 
-                        # Add new_waiting to waiting queue
+                        # Add transaction to end of schedule
                         schedule.extend(new_final)
                         schedule.extend(new_waiting)
                         schedule.extend(new_schedule)
@@ -296,9 +305,9 @@ while len(schedule) > 0 or len(waiting_queue) > 0:
                         print(schedule)
                         print('\n')
 
-                        # Release all locks from new request
+                        # Release all locks from newer transaction
                         lockManager.releaseAllLocks(transaction)
-                            
+            # Transaction commits                            
             else:
                 print('Executing: ', end="")
                 print(operation)
@@ -306,6 +315,7 @@ while len(schedule) > 0 or len(waiting_queue) > 0:
                 lockManager.releaseAllLocks(transaction)
                 final_schedule.append(operation)
                 schedule.pop(i)
+        # Transaction is in waiting queue
         else:
             waiting_queue.append(operation)
             print('Executing: ', end="")
