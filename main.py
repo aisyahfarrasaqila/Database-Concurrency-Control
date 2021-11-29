@@ -1,4 +1,3 @@
-from os import truncate, wait
 import sys
 
 class Lock:
@@ -62,11 +61,24 @@ class LockManager:
     def acquireLock(self, transaction, data):
         index = self.findLock(data)
         if index != -1:
-            self.locks[index].enqueue(transaction)
+            # Wait-die mechanism
+            held = self.locks[index].heldBy()
+            if held:
+                index_acquire = self.findTransaction(transaction)
+                index_held = self.findTransaction(held)
+                if index_acquire < index_held:
+                    self.locks[index].enqueue(transaction)
+                    return True
+                else:
+                    return False
+            else:
+                self.locks[index].enqueue(transaction)
+                return True    
         else:
             lock = Lock(data)
             lock.enqueue(transaction)
             self.locks.append(lock)
+            return True
 
     def releaseLock(self, transaction, data):
         index = self.findLock(data)
@@ -128,32 +140,6 @@ class LockManager:
         if index != -1:
             return self.transactions[index].isWaiting()
 
-    def isDeadlock(self, transaction, data):
-        # Deadlock happens when transaction is trying to acquire lock of data and that data is held
-        # by another transaction that is on the queue for a lock currently held by transaction.
-        # This function returns the other transaction
-        index = self.findLock(data)
-        if index != -1:
-            # Transaction currently holds lock of data
-            heldBy = self.locks[index].heldBy()
-
-            if heldBy:
-                locks = self.transactionLocks(transaction)
-                for lock in locks:
-                    if lock.isWaitedByTransaction(heldBy):
-                        return heldBy
-        return None
-
-
-# # Test for isDeadlock
-# lockManager = LockManager()
-# lockManager.addTransaction(('T2'))
-# lockManager.addTransaction('T1')
-# lockManager.acquireLock('T1', 'B')
-# lockManager.acquireLock('T2', 'A')
-# lockManager.acquireLock('T2', 'B')
-# deadlock = lockManager.isDeadlock('T1', 'A')
-# print(deadlock)
 
 # Read schedule from file
 directory = sys.argv[1]
@@ -165,7 +151,6 @@ lockManager = LockManager()
 schedule = []
 final_schedule = []
 waiting_queue = []
-deadlock_queue = []
 
 for line in file:
     # Read operations in schedule
@@ -195,19 +180,28 @@ while len(schedule) > 0 or len(waiting_queue) > 0:
 
             # Check for locks if action is not commit
             if action_queue != 'COMMIT':
+                print(operation_queue)
                 held_queue = lockManager.isHeld(transaction_queue, data_queue)
                 # Add operation to final schedule if lock is held
                 if held_queue:
-                    print(operation_queue)
-                    print("Transaction in queue has lock, added to final schedule")
+                    print("Transaction in queue has lock, added to final schedule\n")
                     lockManager.setTransactionWaiting(transaction_queue, False)
                     final_schedule.append(operation_queue)
                     waiting_queue.pop(i_queue)
                     i_queue -= 1
-                # Skip queue if lock is not held
+                # Lock is not held
                 else:
-                    print(operation_queue)
-                    print("Still waiting, skip queue\n")
+                    index_lock = lockManager.findLock(data_queue)
+                    if index_lock != -1:
+                        waited = lockManager.locks[index_lock].isWaitedByTransaction(transaction_queue)
+                        if not waited:
+                            lock_queue = lockManager.acquireLock(transaction_queue, data_queue)
+                            if lock_queue:
+                                print("Lock available, added to lock queue\n")
+                            else:
+                                print("Lock still not available, keep waiting\n")
+                        else:
+                            print("Still waiting, skip queue\n")
             else:
                 # Release all locks when commiting
                 if not lockManager.isTransactionWaiting(transaction_queue):
@@ -230,19 +224,17 @@ while len(schedule) > 0 or len(waiting_queue) > 0:
         if not lockManager.isTransactionWaiting(transaction):
             # print(lockManager.isTransactionWaiting(transaction))
             if action != 'COMMIT':
+                print(operation)
                 held = lockManager.isHeld(transaction, data)
                 if held:
-                    print(operation)
                     print("Transaction has lock, added to final schedule\n")
                     final_schedule.append(operation)
+                    schedule.pop(i)
                 else:
-                    print(operation)
-                    # Check for deadlock when trying to acquire a lock
-                    deadlock = lockManager.isDeadlock(transaction, data)
-                    if not deadlock:
-                        print("Transaction acquires lock. ", end="")
-                        # Acquire lock
-                        lockManager.acquireLock(transaction, data)
+                    print("Transaction attempts to acquire lock. ", end="")
+                    # Acquire lock
+                    acquire = lockManager.acquireLock(transaction, data)
+                    if acquire:
                         # Check if transaction holds lock of data or still in queue
                         status = lockManager.isHeld(transaction, data)
                         if status:
@@ -252,63 +244,65 @@ while len(schedule) > 0 or len(waiting_queue) > 0:
                             print("Transaction goes to queue and waits for lock\n")
                             lockManager.setTransactionWaiting(transaction, True)
                             waiting_queue.append(operation)
+                        schedule.pop(i)
+                    # Rollback
                     else:
-                        print('Deadlock')
-                        # Deadlock Recovery: Older lock request is selected as victim
-                        index_acquire = lockManager.findTransaction(transaction)
-                        index_deadlock = lockManager.findTransaction(deadlock)
-
-                        print("Rollback " + str(deadlock))
-                        # Delete operations of old request's transaction from waiting queue
+                        print("New transaction can't wait, rollback")
+                        print("Rollback " + str(transaction) + "\n")
+                        # Delete operations of new request's transaction from waiting queue
                         new_waiting = []
                         i_waiting = 0
                         while i_waiting < len(waiting_queue):
-                            if waiting_queue[i_waiting][0] == deadlock:
+                            if waiting_queue[i_waiting][0] == transaction:
                                 deleted_operation = waiting_queue.pop(i_waiting)
                                 lockManager.removeTransactionFromData(deleted_operation[0], deleted_operation[2])
                                 new_waiting.append(deleted_operation)
                                 i_waiting -= 1
                             i_waiting += 1
 
-                        # Delete operations of old request's transaction from final schedule and add to waiting queue
+                        # Delete operations of new request's transaction from final schedule and move to end of schedule
+                        new_final = []
                         i_final = 0
                         while i_final < len(final_schedule):
-                            if final_schedule[i_final][0] == deadlock:
-                                waiting_queue.append(final_schedule[i_final])
+                            if final_schedule[i_final][0] == transaction:
+                                new_final.append(final_schedule[i_final])
                                 final_schedule.pop(i_final)
                                 i_final -= 1
                             i_final += 1
 
-                        # Add new_waiting to waiting queue and acquire lock
-                        waiting_queue.extend(new_waiting)
+                        # Move operations of transaction to end of schedule
+                        new_schedule = []
+                        i_schedule = i
+                        while i_schedule < len(schedule):
+                            if schedule[i_schedule][0] == transaction:
+                                new_schedule.append(schedule[i_schedule])
+                                schedule.pop(i_schedule)
+                                i_schedule -= 1
+                            i_schedule += 1
 
-                        # Release all locks from old request
-                        lockManager.setTransactionWaiting(deadlock, True)
-                        lockManager.releaseAllLocks(deadlock)
+                        # Add new_waiting to waiting queue
+                        schedule.extend(new_final)
+                        schedule.extend(new_waiting)
+                        schedule.extend(new_schedule)
+                        print('New schedule:')
+                        print(schedule)
+                        print('\n')
 
-                        # Acquire lock for new request
-                        print("Transaction holds the lock, added to final schedule\n")
-                        lockManager.acquireLock(transaction, data)
-                        final_schedule.append(operation)
-                        
-                        # Acquire lock for old request (add to lock queue)
-                        for waiting in waiting_queue:
-                            if waiting[0] == deadlock:
-                                lockManager.acquireLock(waiting[0], waiting[2])
+                        # Release all locks from new request
+                        lockManager.releaseAllLocks(transaction)
                             
             else:
                 print(operation)
                 print("Transaction releases locks\n")
                 lockManager.releaseAllLocks(transaction)
                 final_schedule.append(operation)
+                schedule.pop(i)
         else:
             waiting_queue.append(operation)
             print(operation)
             print("Transaction waiting, goes to queue\n")
-            # print(waiting_queue)
+            schedule.pop(i)
 
-        # print("Remove " + str(schedule[i]) + " from schedule\n")
-        schedule.pop(i)
-        # print(len(schedule))
-
+print('Final Schedule:')
 print(final_schedule)
+print(len(final_schedule))
